@@ -17,3 +17,5 @@ data/
 *.pem
 *.key
 secrets/
+.pytest_cache/
+.ruff_cache/
