@@ -1,6 +1,6 @@
 # gemini-stream-bot
 
-Private Telegram bot that forwards text messages to Gemini Flash and streams the answer back with Telegram's native draft streaming (`sendMessageDraft`), including the Stop button (`can_stop` / `stopped_message_generation`, Bot API 10.3).
+Private Telegram bot that forwards text messages to Gemini Flash-Lite and streams the answer back with Telegram's native draft streaming (`sendMessageDraft`), including the Stop button (`can_stop` / `stopped_message_generation`, Bot API 10.3).
 
 Behaviour is defined in [SPEC.md](SPEC.md) (in Russian) — it is the source of truth.
 
@@ -14,7 +14,7 @@ All configuration is in `.env` (never committed). See [.env.example](.env.exampl
 | `GEMINI_API_KEY` | yes | — |
 | `OWNER_ID` | yes | — |
 | `ALLOWED_USERS` / `ALLOWED_USERNAMES` | no | empty |
-| `GEMINI_MODEL` | no | `gemini-3.8-flash` |
+| `GEMINI_MODEL` | no | `gemini-3.5-flash-lite` |
 | `GEMINI_SYSTEM_PROMPT` | no | empty |
 | `GEMINI_TIMEOUT_SEC` | no | `120` |
 | `RATE_LIMIT_PER_MINUTE` | no | `20` |
@@ -43,7 +43,7 @@ pytest && ruff check src tests
 
 ## Deploy (from the Mac)
 
-One-time on the droplet: create `/opt/bots/gemini-stream-bot/.env` (`chmod 600`) and `docker login ghcr.io`.
+The image is built on the droplet from `main`. One-time: create `/opt/gemini-stream-bot/.env` (`chmod 600`).
 
 ```bash
 DROPLET_HOST=<ssh-alias> ./scripts/deploy.sh

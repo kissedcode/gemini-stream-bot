@@ -17,7 +17,7 @@ def test_extract_stop_absent():
 
 
 def test_help_contains_model():
-    assert help_text("gemini-3.8-flash").endswith("Модель: gemini-3.8-flash")
+    assert help_text("gemini-3.5-flash-lite").endswith("Модель: gemini-3.5-flash-lite")
 
 
 def test_build_application_registers_handlers():
