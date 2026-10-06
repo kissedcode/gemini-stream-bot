@@ -16,7 +16,7 @@ class Settings(BaseSettings):
 
     bot_token: str
     gemini_api_key: str
-    gemini_model: str = "gemini-3.8-flash"
+    gemini_model: str = "gemini-3.5-flash-lite"
     gemini_system_prompt: str = ""
     gemini_timeout_sec: float = 120
 

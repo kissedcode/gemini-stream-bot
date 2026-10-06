@@ -7,7 +7,7 @@ from telegram.ext import ContextTypes
 from src.handlers.common import ensure_allowed, state
 
 HELP_TEXT = (
-    "Привет. Я пересылаю твои сообщения в Gemini Flash и показываю ответ по мере генерации.\n"
+    "Привет. Я пересылаю твои сообщения в Gemini Flash-Lite и показываю ответ по мере генерации.\n"
     "\n"
     "Просто напиши вопрос текстом.\n"
     "• Ответ печатается в реальном времени, кнопка Stop в черновике останавливает генерацию.\n"

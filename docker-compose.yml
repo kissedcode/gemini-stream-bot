@@ -1,6 +1,6 @@
 services:
   bot:
-    image: ghcr.io/kissedcode/gemini-stream-bot:latest
+    image: gemini-stream-bot:local
     build: .
     container_name: gemini-stream-bot
     restart: unless-stopped
