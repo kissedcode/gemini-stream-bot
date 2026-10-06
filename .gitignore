@@ -1,0 +1,19 @@
+.env
+.env.local
+__pycache__/
+*.pyc
+.venv/
+venv/
+data/
+!data/.gitkeep
+*.db
+*.sqlite
+*.sqlite3
+.DS_Store
+.idea/
+.vscode/
+
+# secrets
+*.pem
+*.key
+secrets/
