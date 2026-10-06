@@ -183,7 +183,7 @@ Stateless-прокси: `text update → Gemini generateContent stream → sendM
 Ожидаемая структура на сервере:
 
 ```text
-/opt/gemini-stream-bot/
+/opt/bots/gemini-stream-bot/
 ├── docker-compose.yml
 └── .env              # chmod 600
 ```
@@ -198,6 +198,7 @@ src/
 ├── config.py            # pydantic-settings
 ├── access.py            # проверка whitelist
 ├── handlers/
+│   ├── common.py        # BotState (settings, gemini, limiter, active), ensure_allowed
 │   ├── commands.py      # /start, /help
 │   ├── messages.py      # text → stream, non-text → отказ
 │   └── stop.py          # stopped_message_generation
@@ -255,7 +256,7 @@ LOG_LEVEL=INFO
 - `CommandHandler(["start", "help"], help_command, filters=filters.ChatType.PRIVATE)`.
 - `MessageHandler(filters.ChatType.PRIVATE & filters.TEXT & ~filters.COMMAND, on_text)`.
 - `MessageHandler(filters.ChatType.PRIVATE & filters.COMMAND, help_command)` — неизвестная команда показывает справку.
-- `MessageHandler(filters.ChatType.PRIVATE & ~filters.TEXT, on_non_text)`.
+- `MessageHandler(filters.ChatType.PRIVATE & ~filters.TEXT & ~filters.StatusUpdate.ALL, on_non_text)`.
 
 Не должны регистрироваться: `InlineQueryHandler`, `CallbackQueryHandler`, любые JobQueue-задачи, handlers для групп.
 
@@ -277,7 +278,7 @@ LOG_LEVEL=INFO
 4. Создать `DraftStreamer(chat_id, reply_to=message.message_id)`, записать в `active[chat_id]` (вместе с asyncio task).
 5. `draft_id = random.randint(1, 2**31 - 1)`. Сразу `sendMessageDraft(text="", can_stop=True)` → в Telegram «Thinking…».
 6. Итерировать `stream_answer(prompt)`; каждый чанк добавлять в буфер `current`.
-7. Throttle: отправлять `sendMessageDraft(chat_id, draft_id, text=current, can_stop=True)` не чаще раза в `DRAFT_INTERVAL_MS` и только если текст изменился. Черновики отправляются plain text, без `parse_mode` (незакрытые маркеры Markdown ломают парсинг).
+7. Throttle: отправлять `sendMessageDraft(chat_id, draft_id, text=current[:4096], can_stop=True)` не чаще раза в `DRAFT_INTERVAL_MS` и только если текст изменился. Плейсхолдер из п. 5 не сдвигает throttle — первый реальный текст уходит сразу. Черновики отправляются plain text, без `parse_mode` (незакрытые маркеры Markdown ломают парсинг).
 8. Split: если `len(current) > 4000` → `head, tail = split_text(current, 4000)` (резать по последнему `\n\n`, иначе `\n`, иначе пробелу, иначе жёстко на 4000). `head` финализировать (п. 10), `current = tail`, новый `draft_id`, продолжить стрим. Reply ставится только на первую часть.
 9. По окончании стрима — финальный `sendMessageDraft` с полным `current` не нужен: сразу п. 10.
 10. Финализация части: `sendMessage(chat_id, text=to_markdown_v2(part), parse_mode=MarkdownV2)`. Если MarkdownV2 превышает 4096 или Telegram ответил `BadRequest` → повторить plain text без `parse_mode`. Если `part` пустой — не отправлять.
@@ -293,8 +294,8 @@ LOG_LEVEL=INFO
 #### Остановка (`on_stop_generation`)
 
 1. Достать `stopped_message_generation` из update (нативное поле или `update.api_kwargs`). Нет поля → `return`.
-2. Проверить доступ по `from`/`user` объекта.
-3. Найти генерацию в `active[chat_id]`; нет → `return`.
+2. Проверить доступ по `chat` объекта `MessageGenerationStopped` (поля `from` у него нет; в личном чате `chat.id` = user ID, `chat.username` = username). Не private → игнор.
+3. Найти генерацию в `active[chat_id]`; нет или `draft_id` не входит в её draft_id (любой из частей) → `return`.
 4. `cancel(reason="stopped")`: отменить task чтения стрима Gemini (закрывает HTTP-стрим), финализировать текущую часть как `<накопленное>\n\n⏹ Остановлено` (или только `⏹ Остановлено`, если пусто).
 5. Остановить propagation (`ApplicationHandlerStop`).
 
@@ -335,7 +336,7 @@ LOG_LEVEL=INFO
 
 - Одна активная генерация на чат; новый вопрос отменяет старую.
 - Ошибка Telegram при отправке черновика не прерывает генерацию.
-- Graceful shutdown: при SIGTERM активные генерации отменяются, накопленные части финализируются (best effort).
+- Graceful shutdown: `run_polling(stop_signals=None)` + собственные обработчики SIGINT/SIGTERM в `post_init`: сначала все активные генерации отменяются с финализацией накопленного текста и `⏹ Остановлено`, затем `app.stop_running()`. В compose `stop_grace_period: 20s`.
 - `restart: unless-stopped`, логи json-file с ротацией (10m × 3).
 
 #### Совместимость
