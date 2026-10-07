@@ -18,13 +18,28 @@ command -v gh >/dev/null || die "нужен gh (brew install gh)"
 gh auth status >/dev/null 2>&1 || die "gh не залогинен: gh auth login"
 gh api "repos/$REPO" >/dev/null 2>&1 || die "нет доступа к $REPO"
 
+GH_USER="$(gh api user -q .login)"
+OWNER="${REPO%%/*}"
+echo "gh: $GH_USER"
+if [ "$GH_USER" != "$OWNER" ]; then
+  die "gh залогинен как '$GH_USER', а секреты может задавать только '$OWNER'.
+  Переключись: gh auth switch -u $OWNER   (или gh auth login, если аккаунта $OWNER в gh нет)"
+fi
+PERM="$(gh api "repos/$REPO" -q '.permissions.admin')"
+if [ "$PERM" != "true" ]; then
+  die "у токена gh нет admin-прав на $REPO (fine-grained токен без Administration/Secrets?).
+  Перелогинься: gh auth refresh -h github.com -s repo   или   gh auth login"
+fi
+
 say "Environment $ENV_NAME (только ветка main)"
-gh api -X PUT "repos/$REPO/environments/$ENV_NAME" --input - >/dev/null <<'JSON'
+if gh api "repos/$REPO/environments/$ENV_NAME" >/dev/null 2>&1; then
+  echo "  уже существует"
+else
+  gh api -X PUT "repos/$REPO/environments/$ENV_NAME" --input - >/dev/null <<'JSON'
 {"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}}
 JSON
-POLICIES="$(gh api "repos/$REPO/environments/$ENV_NAME/deployment-branch-policies" -q '.branch_policies[].name')"
-if ! printf '%s\n' "$POLICIES" | grep -qx main; then
   gh api -X POST "repos/$REPO/environments/$ENV_NAME/deployment-branch-policies" -f name=main -f type=branch >/dev/null
+  echo "  создан"
 fi
 
 say "Дроплет: $ALIAS"
