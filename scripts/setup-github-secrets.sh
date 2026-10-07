@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Fill GitHub environment "production" secrets for CI/CD. Run on the Mac from anywhere:
 #   bash scripts/setup-github-secrets.sh
-# Needs: gh (logged in as the repo owner), ssh access to the droplet via an ~/.ssh/config alias.
+# Needs: gh >= 2.40 with the repo owner account saved (it does not have to be the active one),
+#        ssh access to the droplet via an ~/.ssh/config alias.
 # Secret values are never printed and never passed as command-line arguments.
 set -euo pipefail
 
@@ -15,20 +16,24 @@ die() { printf 'Ошибка: %s\n' "$*" >&2; exit 1; }
 put() { printf '%s' "$2" | gh secret set "$1" --repo "$REPO" --env "$ENV_NAME" >/dev/null && echo "  $1: ok"; }
 
 command -v gh >/dev/null || die "нужен gh (brew install gh)"
-gh auth status >/dev/null 2>&1 || die "gh не залогинен: gh auth login"
-gh api "repos/$REPO" >/dev/null 2>&1 || die "нет доступа к $REPO"
+
+# Работаем от аккаунта владельца репо, не трогая активный аккаунт gh и токены из окружения:
+# GITHUB_TOKEN/GH_TOKEN из шелла игнорируем, берём сохранённый в gh токен нужного пользователя.
+OWNER="${REPO%%/*}"
+GH_ACCOUNT="${GH_ACCOUNT:-$OWNER}"
+unset GITHUB_TOKEN GH_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN
+GH_TOKEN="$(gh auth token --hostname github.com --user "$GH_ACCOUNT" 2>/dev/null || true)"
+[ -n "$GH_TOKEN" ] || die "в gh нет сохранённого аккаунта '$GH_ACCOUNT' (или gh старше 2.40).
+  Добавь его, не трогая текущий: env -u GITHUB_TOKEN -u GH_TOKEN gh auth login"
+export GH_TOKEN
+gh api "repos/$REPO" >/dev/null 2>&1 || die "нет доступа к $REPO от '$GH_ACCOUNT'"
 
 GH_USER="$(gh api user -q .login)"
-OWNER="${REPO%%/*}"
-echo "gh: $GH_USER"
-if [ "$GH_USER" != "$OWNER" ]; then
-  die "gh залогинен как '$GH_USER', а секреты может задавать только '$OWNER'.
-  Переключись: gh auth switch -u $OWNER   (или gh auth login, если аккаунта $OWNER в gh нет)"
-fi
+echo "gh: работаю от $GH_USER (активный аккаунт gh не меняется)"
 PERM="$(gh api "repos/$REPO" -q '.permissions.admin')"
 if [ "$PERM" != "true" ]; then
   die "у токена gh нет admin-прав на $REPO (fine-grained токен без Administration/Secrets?).
-  Перелогинься: gh auth refresh -h github.com -s repo   или   gh auth login"
+  Обнови права: env -u GITHUB_TOKEN -u GH_TOKEN gh auth switch -u $GH_ACCOUNT && env -u GITHUB_TOKEN -u GH_TOKEN gh auth refresh -h github.com -s repo"
 fi
 
 say "Environment $ENV_NAME (только ветка main)"
