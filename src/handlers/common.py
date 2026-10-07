@@ -33,7 +33,7 @@ def state(context: ContextTypes.DEFAULT_TYPE) -> BotState:
 async def ensure_allowed(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     """True if the sender is whitelisted; otherwise replies 'Доступ закрыт.'."""
     user = update.effective_user
-    if is_allowed(state(context).settings, user.id if user else None, user.username if user else None):
+    if is_allowed(state(context).settings, user.username if user else None):
         return True
     log.warning("access denied user=%s", user.id if user else None)
     if update.effective_message:

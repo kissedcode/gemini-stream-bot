@@ -1,14 +1,14 @@
+# Local development: docker compose up --build  (production uses deploy/docker-compose.yml)
 services:
   bot:
     image: gemini-stream-bot:local
     build: .
-    container_name: gemini-stream-bot
+    container_name: gemini-stream-bot-local
     restart: unless-stopped
     env_file:
       - .env
     environment:
       TZ: ${TZ:-Europe/Luxembourg}
-    # leave time to finalize in-flight answers on SIGTERM
     stop_grace_period: 20s
     logging:
       driver: json-file

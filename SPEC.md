@@ -1,10 +1,10 @@
 # Спецификация Telegram-бота Gemini Stream
 
-Версия документа: 2026-10-06
-Текущая инсталляция: пока не задеплоен. План: `@<username>` в Docker-контейнере `gemini-stream-bot` на DO-дроплете Ивана, путь `/opt/gemini-stream-bot/`.
+Версия документа: 2026-10-07
+Текущая инсталляция: пока не задеплоен. План: `@<username>` в Docker-контейнере `gemini-stream-bot` на DO-дроплете Ивана, путь `/opt/gemini-stream-bot/`. Сборка и деплой — GitHub Actions (`.github/workflows/ci-cd.yml`).
 Назначение: приватный бот-обёртка над Gemini Flash-Lite: пересылает текст пользователя в модель и показывает ответ по мере генерации через нативный стриминг Telegram (`sendMessageDraft`).
 
-> Репозиторий публичный. Токены, API-ключи, user ID и usernames из whitelist в репозитории не хранятся — только в `.env` на сервере.
+> Репозиторий публичный. Токены, API-ключи и usernames из whitelist в репозитории не хранятся — только в GitHub Secrets (environment `production`), откуда при деплое пишутся в `.env` на сервере.
 
 ## Оглавление
 
@@ -28,6 +28,7 @@
   - [Детали: Внешние интеграции](#детали-внешние-интеграции)
   - [Детали: Telegram command menu](#детали-telegram-command-menu)
   - [Детали: Нефункциональные требования](#детали-нефункциональные-требования)
+  - [Детали: CI/CD](#детали-cicd)
   - [Детали: Acceptance checklist](#детали-acceptance-checklist)
   - [Детали: Known current deployment state](#детали-known-current-deployment-state)
 
@@ -45,13 +46,9 @@
 
 ## Кто может пользоваться ботом
 
-Бот приватный и работает по whitelist. Пользователь разрешён, если выполняется хотя бы одно правило:
+Бот приватный и работает по whitelist usernames. Пользователь разрешён, если его Telegram username (без `@`, без учёта регистра) есть в списке разрешённых. Пользователь без username или с username не из списка доступа не получает. Если пользователь сменит username, его нужно заново добавить в список.
 
-- Его Telegram user ID — ID владельца бота.
-- Его Telegram user ID есть в списке разрешённых ID.
-- Его username (без `@`, без учёта регистра) есть в списке разрешённых usernames.
-
-Актуальный whitelist хранится только в конфигурации на сервере и в этом документе не публикуется.
+Актуальный whitelist хранится только в секретах GitHub и в этом документе не публикуется.
 
 Бот работает только в личных чатах. В группах и каналах он ничего не делает.
 
@@ -183,13 +180,12 @@ Stateless-прокси: `text update → Gemini generateContent stream → sendM
 Ожидаемая структура на сервере:
 
 ```text
-/opt/gemini-stream-bot/   # git clone публичного репо
-├── docker-compose.yml
-├── ...исходники
-└── .env                  # chmod 600, не в git
+/opt/gemini-stream-bot/
+├── docker-compose.yml    # копия deploy/docker-compose.yml, кладёт CI
+└── .env                  # chmod 600, пишет CI из GitHub Secrets
 ```
 
-Volume для данных не нужен. Как и остальные боты на дроплете, образ собирается прямо на сервере: `scripts/deploy.sh` → `git reset --hard origin/main && docker compose up -d --build`. GHCR не используется. Контейнер работает от непривилегированного пользователя `bot`.
+Volume для данных не нужен. Образ `ghcr.io/kissedcode/gemini-stream-bot:<git sha>` (и `:latest`) собирает GitHub Actions. Контейнер работает от непривилегированного пользователя `bot`. Корневой `docker-compose.yml` — только для локальной разработки (`build: .`).
 
 Структура репозитория:
 
@@ -218,8 +214,6 @@ GEMINI_API_KEY=
 GEMINI_MODEL=gemini-3.5-flash-lite
 GEMINI_SYSTEM_PROMPT=
 GEMINI_TIMEOUT_SEC=120
-OWNER_ID=
-ALLOWED_USERS=            # CSV numeric IDs
 ALLOWED_USERNAMES=        # CSV без @
 RATE_LIMIT_PER_MINUTE=20
 DRAFT_INTERVAL_MS=300
@@ -228,17 +222,14 @@ LOG_LEVEL=INFO
 ```
 
 - `GEMINI_SYSTEM_PROMPT` пустой → `system_instruction` не передаётся.
-- Обязательны: `BOT_TOKEN`, `GEMINI_API_KEY`, `OWNER_ID`. Без них процесс падает при старте с понятной ошибкой (без вывода значений).
+- Обязательны: `BOT_TOKEN`, `GEMINI_API_KEY`, `ALLOWED_USERNAMES` (непустой после разбора). Без них процесс падает при старте с понятной ошибкой (без вывода значений).
+- В production `.env` также есть `IMAGE_TAG=<git sha>` — используется только compose для выбора образа.
 
 ### Детали: Модель доступа
 
 Проверка выполняется до любого действия для каждого update (`message`, `stopped_message_generation`).
 
-Разрешён, если хотя бы одно:
-
-- `user.id == OWNER_ID`;
-- `user.id ∈ ALLOWED_USERS`;
-- `user.username.lower() ∈ {u.lstrip('@').lower() for u in ALLOWED_USERNAMES}` (если username есть).
+Разрешён, если `user.username` непустой и `user.username.lstrip('@').lower() ∈ {u.strip().lstrip('@').lower() for u in ALLOWED_USERNAMES.split(',') if u.strip()}`. Проверок по numeric user ID нет.
 
 Неавторизованный в личном чате → ответ `Доступ закрыт.` и `return`; в лог `WARNING` с `user.id` (без текста сообщения). Update не из `ChatType.PRIVATE` → игнор без ответа.
 
@@ -295,7 +286,7 @@ LOG_LEVEL=INFO
 #### Остановка (`on_stop_generation`)
 
 1. Достать `stopped_message_generation` из update (нативное поле или `update.api_kwargs`). Нет поля → `return`.
-2. Проверить доступ по `chat` объекта `MessageGenerationStopped` (поля `from` у него нет; в личном чате `chat.id` = user ID, `chat.username` = username). Не private → игнор.
+2. Проверить доступ по `chat.username` объекта `MessageGenerationStopped` (поля `from` у него нет; в личном чате `chat.username` = username пользователя). Не private → игнор.
 3. Найти генерацию в `active[chat_id]`; нет или `draft_id` не входит в её draft_id (любой из частей) → `return`.
 4. `cancel(reason="stopped")`: отменить task чтения стрима Gemini (закрывает HTTP-стрим), финализировать текущую часть как `<накопленное>\n\n⏹ Остановлено` (или только `⏹ Остановлено`, если пусто).
 5. Остановить propagation (`ApplicationHandlerStop`).
@@ -327,7 +318,9 @@ LOG_LEVEL=INFO
 
 #### Безопасность
 
-- Репозиторий публичный: в git нет `.env`, токенов, ключей, user ID и usernames whitelist. `.env.example` — только имена переменных.
+- Репозиторий публичный: в git нет `.env`, токенов, ключей и usernames whitelist. `.env.example` — только имена переменных.
+- CI запускается на `pull_request` (не `pull_request_target`), поэтому PR из форков секретов не видят. Секреты — только в environment `production`, доступном лишь ветке `main`.
+- Дроплет не хранит учётку GHCR: деплой логинится короткоживущим `GITHUB_TOKEN`, делает pull и logout.
 - Не логировать `BOT_TOKEN`, `GEMINI_API_KEY`, тексты вопросов и ответов. Логировать `user.id`, длину ответа, длительность, тип ошибки.
 - Whitelist применяется ко всем entrypoints.
 - Rate limit на пользователя, чтобы флуд не расходовал квоту Gemini.
@@ -350,6 +343,31 @@ LOG_LEVEL=INFO
 - Черновик появляется сразу (пустой → «Thinking…»), без ожидания первого чанка.
 - Интервал черновиков 300 мс по умолчанию — компромисс между плавностью и лимитами Telegram.
 
+### Детали: CI/CD
+
+Workflow `.github/workflows/ci-cd.yml`:
+
+- Триггеры: `pull_request`, `push` в `main`, `workflow_dispatch`.
+- `test` (всегда): Python 3.12, `pip install -r requirements-dev.txt`, `ruff check src tests`, `pytest -q`.
+- `build` (только `main`, после `test`): buildx `linux/amd64`, push `ghcr.io/kissedcode/gemini-stream-bot:{sha,latest}` через `GITHUB_TOKEN` (`packages: write`), кеш `type=gha`.
+- `deploy` (после `build`, `environment: production`): SSH на дроплет ключом из секрета → `scp deploy/docker-compose.yml` → атомарно пишет `.env` (umask 077, `.env.new` → `mv`) → `docker login` с `GITHUB_TOKEN` через stdin → `docker compose pull` → `docker logout` → `docker compose up -d --remove-orphans` → проверка `Application started` в логах (иначе job падает) → `docker image prune -f`.
+
+Секреты environment `production`:
+
+```text
+BOT_TOKEN
+GEMINI_API_KEY
+ALLOWED_USERNAMES      # CSV без @
+DROPLET_HOST           # IP или hostname
+DROPLET_USER
+DROPLET_SSH_KEY        # приватный ed25519 deploy-ключ, отдельный от личного
+DROPLET_KNOWN_HOSTS    # строка(и) known_hosts дроплета
+```
+
+Необязательные variables (не секреты): `GEMINI_MODEL` (по умолчанию `gemini-3.5-flash-lite`), `GEMINI_SYSTEM_PROMPT` (одна строка). Остальные значения `.env` зашиты в workflow (`GEMINI_TIMEOUT_SEC=120`, `RATE_LIMIT_PER_MINUTE=20`, `DRAFT_INTERVAL_MS=300`, `TZ=Europe/Luxembourg`, `LOG_LEVEL=INFO`).
+
+Секреты заливаются скриптом `scripts/setup-github-secrets.sh` с мака (см. README).
+
 ### Детали: Acceptance checklist
 
 - `/start` и `/help` показывают одинаковый текст с актуальным ID модели.
@@ -366,6 +384,8 @@ LOG_LEVEL=INFO
 - В логах нет токенов, ключей и текстов сообщений.
 - В git-истории нет секретов и whitelist.
 - Docker container стартует без traceback, в логах `Application started`.
+- PR запускает только `test`; merge в `main` — `test → build → deploy`, и после deploy бот работает с образом текущего коммита.
+- Пустой `ALLOWED_USERNAMES` → контейнер не стартует.
 
 ### Детали: Known current deployment state
 
@@ -373,4 +393,4 @@ LOG_LEVEL=INFO
 
 - Контейнер: —
 - Бот: — (username появится после создания в BotFather)
-- Whitelist: задаётся в `.env` на сервере, в репозитории не фиксируется.
+- Whitelist: секрет `ALLOWED_USERNAMES` в GitHub environment `production`, в репозитории не фиксируется.

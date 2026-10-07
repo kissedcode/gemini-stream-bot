@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from functools import cached_property
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,10 +21,8 @@ class Settings(BaseSettings):
     gemini_system_prompt: str = ""
     gemini_timeout_sec: float = 120
 
-    owner_id: int
-    # CSV strings; parsed by properties below (keeps pydantic from JSON-decoding them)
-    allowed_users: str = ""
-    allowed_usernames: str = ""
+    # CSV of Telegram usernames without @ (required; parsed below to keep pydantic from JSON-decoding)
+    allowed_usernames: str
 
     rate_limit_per_minute: int = 20
     draft_interval_ms: int = 300
@@ -32,14 +31,16 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     @cached_property
-    def allowed_user_ids(self) -> frozenset[int]:
-        return frozenset(int(x) for x in self.allowed_users.split(",") if x.strip())
-
-    @cached_property
     def allowed_username_set(self) -> frozenset[str]:
         return frozenset(
             x.strip().lstrip("@").lower() for x in self.allowed_usernames.split(",") if x.strip()
         )
+
+    @model_validator(mode="after")
+    def _whitelist_not_empty(self) -> "Settings":
+        if not self.allowed_username_set:
+            raise ValueError("allowed_usernames is empty")
+        return self
 
     def __repr__(self) -> str:  # never print secrets
         return f"Settings(model={self.gemini_model!r})"
