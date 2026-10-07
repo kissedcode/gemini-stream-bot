@@ -6,19 +6,9 @@ Behaviour is defined in [SPEC.md](SPEC.md) (in Russian) — it is the source of 
 
 ## Configuration
 
-All configuration is in `.env` (never committed). See [.env.example](.env.example).
+Locally: `.env` (never committed), see [.env.example](.env.example). Required: `BOT_TOKEN`, `GEMINI_API_KEY`, `ALLOWED_USERNAMES` (comma-separated, without `@`). Optional: `GEMINI_MODEL` (default `gemini-3.5-flash-lite`), `GEMINI_SYSTEM_PROMPT`, `GEMINI_TIMEOUT_SEC`, `RATE_LIMIT_PER_MINUTE`, `DRAFT_INTERVAL_MS`.
 
-| Variable | Required | Default |
-|---|---|---|
-| `BOT_TOKEN` | yes | — |
-| `GEMINI_API_KEY` | yes | — |
-| `OWNER_ID` | yes | — |
-| `ALLOWED_USERS` / `ALLOWED_USERNAMES` | no | empty |
-| `GEMINI_MODEL` | no | `gemini-3.5-flash-lite` |
-| `GEMINI_SYSTEM_PROMPT` | no | empty |
-| `GEMINI_TIMEOUT_SEC` | no | `120` |
-| `RATE_LIMIT_PER_MINUTE` | no | `20` |
-| `DRAFT_INTERVAL_MS` | no | `300` |
+In production all secrets live in GitHub Actions secrets of the `production` environment (limited to `main`).
 
 ## Run locally
 
@@ -41,14 +31,22 @@ python -m src.main
 pytest && ruff check src tests
 ```
 
-## Deploy (from the Mac)
+## CI/CD (GitHub Actions)
 
-The image is built on the droplet from `main`. One-time: create `/opt/gemini-stream-bot/.env` (`chmod 600`).
+`.github/workflows/ci-cd.yml`:
+
+- every PR: ruff + pytest (fork PRs never get secrets: `pull_request`, not `pull_request_target`);
+- push to `main`: tests → build `ghcr.io/kissedcode/gemini-stream-bot:{sha,latest}` → deploy to the droplet over SSH (writes `.env` from secrets, `docker compose pull && up -d`, checks `Application started`).
+
+One-time setup of secrets (on the Mac, needs `gh` and ssh access to the droplet):
 
 ```bash
-DROPLET_HOST=<ssh-alias> ./scripts/deploy.sh
-DROPLET_HOST=<ssh-alias> ./scripts/logs.sh
+bash scripts/setup-github-secrets.sh
 ```
+
+Secrets: `BOT_TOKEN`, `GEMINI_API_KEY`, `ALLOWED_USERNAMES`, `DROPLET_HOST`, `DROPLET_USER`, `DROPLET_SSH_KEY`, `DROPLET_KNOWN_HOSTS`. Optional repo/environment variables: `GEMINI_MODEL`, `GEMINI_SYSTEM_PROMPT`.
+
+Logs: `DROPLET_HOST=<ssh-alias> ./scripts/logs.sh`
 
 ## Layout
 

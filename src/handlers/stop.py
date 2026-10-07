@@ -26,8 +26,8 @@ async def on_stop_generation(update: Update, context: ContextTypes.DEFAULT_TYPE)
     chat = data.get("chat") or {}
     chat_id, draft_id = chat.get("id"), data.get("draft_id")
     st = state(context)
-    # MessageGenerationStopped has no `from`: in a private chat chat.id == user.id
-    if chat.get("type") != "private" or not is_allowed(st.settings, chat_id, chat.get("username")):
+    # MessageGenerationStopped has no `from`: in a private chat chat.username == user's username
+    if chat.get("type") != "private" or not is_allowed(st.settings, chat.get("username")):
         raise ApplicationHandlerStop
     gen = st.active.get(chat_id)
     if gen is not None and draft_id in gen.draft_ids:

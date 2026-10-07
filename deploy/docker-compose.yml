@@ -1,0 +1,17 @@
+# Production compose, copied to /opt/gemini-stream-bot/ on the droplet by GitHub Actions.
+# IMAGE_TAG and all app settings come from .env, which the workflow writes from GitHub secrets.
+services:
+  bot:
+    image: ghcr.io/kissedcode/gemini-stream-bot:${IMAGE_TAG:-latest}
+    container_name: gemini-stream-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      TZ: ${TZ:-Europe/Luxembourg}
+    stop_grace_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

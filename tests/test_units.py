@@ -1,3 +1,5 @@
+import pytest
+
 from src.access import is_allowed
 from src.config import Settings
 from src.services.formatting import split_text, to_markdown_v2
@@ -5,20 +7,23 @@ from src.services.rate_limit import RateLimiter
 
 
 def make_settings(**kw):
-    base = dict(bot_token="x", gemini_api_key="y", owner_id=1)
+    base = dict(bot_token="x", gemini_api_key="y", allowed_usernames="tester")
     base.update(kw)
     return Settings(_env_file=None, **base)
 
 
 def test_access_rules():
-    s = make_settings(allowed_users="2, 3", allowed_usernames="@Alice,bob")
-    assert is_allowed(s, 1, None)
-    assert is_allowed(s, 3, None)
-    assert is_allowed(s, 9, "alice")
-    assert is_allowed(s, 9, "BOB")
-    assert not is_allowed(s, 9, "eve")
-    assert not is_allowed(s, 9, None)
-    assert not is_allowed(s, None, "alice")
+    s = make_settings(allowed_usernames="@Alice, bob")
+    assert is_allowed(s, "alice")
+    assert is_allowed(s, "@BOB")
+    assert not is_allowed(s, "eve")
+    assert not is_allowed(s, None)
+    assert not is_allowed(s, "")
+
+
+def test_empty_whitelist_rejected():
+    with pytest.raises(ValueError):
+        make_settings(allowed_usernames=" , ")
 
 
 def test_settings_repr_hides_secrets():
